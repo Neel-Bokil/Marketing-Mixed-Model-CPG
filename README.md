@@ -2,6 +2,9 @@
 
 **Channel Contribution Analysis · Response Curves · Budget Optimization**
 
+**Live Demo:** [Open the Streamlit Dashboard](https://marketing-mixed-model-cpg.streamlit.app/)
+**GitHub Repository:** [Marketing-Mixed-Model-CPG](https://github.com/Neel-Bokil/Marketing-Mixed-Model-CPG)
+
 An end-to-end Marketing Mix Modeling (MMM) project that analyzes the relationship between marketing investments and revenue for a simulated Consumer Packaged Goods (CPG) brand. The project combines regression modeling, adstock and saturation transformations, channel contribution analysis, response curves, and fixed-budget optimization in an interactive Streamlit dashboard.
 
 ## Project Overview
@@ -187,14 +190,16 @@ Using the historical average weekly media budget as the reference:
 |---|---:|
 | Historical average weekly budget | 69,851.44 |
 | Current modeled weekly media contribution | 798,102.58 |
-| Optimized modeled weekly media contribution | 1,052,166.09 |
+| Optimized modeled weekly media contribution | 1,052,166.12 |
 | Modeled contribution improvement | 31.83% |
 
 The optimizer shifted budget toward TV, print, Facebook, and search while reducing OOH spending to zero under the default response-curve assumptions and constraints.
 
-The improvement is a simulated, model-based optimization result. It does not mean that real-world revenue would increase by 31.83%. The result depends on the fitted response curves, selected budget, spending bounds, and model assumptions.
+The displayed 31.83% is the modeled contribution improvement at the historical average weekly budget, comparing the optimized allocation with a feasible baseline at the same total budget under the configured assumptions. It is a simulated, model-based scenario—not evidence that real-world revenue would increase by 31.83%. The result depends on the response curves, selected budget, spending bounds, and model assumptions. Re-run the current committed app before reusing this figure if model parameters or optimizer code change.
 
-## Dashboard
+## Live Dashboard
+
+The deployed application is available here: [Open CPG Marketing Mix Intelligence](PASTE_YOUR_STREAMLIT_CLOUD_URL_HERE).
 
 The Streamlit dashboard includes:
 
@@ -207,7 +212,7 @@ The Streamlit dashboard includes:
 
 ### Dashboard screenshots
 
-Add screenshots of the actual running application to the `screenshots/` directory. You can then display them in this README:
+Add screenshots captured from the actual running application to the `screenshots/` directory. Keep the image filenames below aligned with the files committed to the repository; remove any image section whose screenshot you have not added:
 
 #### Executive Overview
 
@@ -293,7 +298,7 @@ Potential future improvements include:
 - Comparing additional regression and Bayesian MMM approaches.
 - Validating incremental effects with experiments or lift studies.
 - Adding scenario comparisons and downloadable budget recommendations.
-- Deploying the dashboard for public access.
+- Improving deployment monitoring, error handling, and dashboard performance.
 
 ## Key Takeaway
 
