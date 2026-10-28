@@ -236,11 +236,9 @@ Add screenshots of the actual running application to the `screenshots/` director
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/marketing-mix-model-cpg.git
+git clone https://github.com/Neel-Bokil/marketing-mix-model-cpg.git
 cd marketing-mix-model-cpg
 ```
-
-Replace `YOUR_USERNAME` with your GitHub username.
 
 ### 2. Create a virtual environment
 
@@ -306,6 +304,4 @@ It is intended as a portfolio demonstration of Python, machine learning, statist
 ## Author
 
 **NEEL BOKIL**
-
-Replace the placeholders with your profile information before publishing.
 
