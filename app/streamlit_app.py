@@ -214,7 +214,21 @@ def optimize_budget(target_budget, upper_bounds, slope=HILL_SLOPE):
     if target_budget < 0:
         raise ValueError("Target budget cannot be negative.")
 
-    # Check whether the requested budget is feasible.
+    if not np.isfinite(target_budget):
+        raise ValueError("Target budget must be finite.")
+
+    if (
+        not np.all(np.isfinite(upper_bounds))
+        or np.any(upper_bounds < 0)
+    ):
+        raise ValueError("Channel spending caps must be finite and non-negative.")
+
+    if not 0 < DECAY < 1:
+        raise ValueError("DECAY must be between 0 and 1.")
+
+    if slope <= 0:
+        raise ValueError("Hill slope must be positive.")
+
     if target_budget > upper_bounds.sum() + 1e-6:
         raise ValueError(
             "Target budget exceeds the combined channel spending caps."
@@ -225,21 +239,19 @@ def optimize_budget(target_budget, upper_bounds, slope=HILL_SLOPE):
         dtype=float,
     )
 
-    # Correct tiny floating-point differences in the initial allocation.
+    # Correct small floating-point differences in the baseline.
     difference = target_budget - baseline.sum()
 
     if abs(difference) > 1e-7:
-        if difference > 0:
-            available = upper_bounds - baseline
-        else:
-            available = baseline.copy()
-
         for i in range(len(baseline)):
             if difference > 0:
-                adjustment = min(difference, available[i])
+                adjustment = min(
+                    difference,
+                    upper_bounds[i] - baseline[i],
+                )
                 baseline[i] += adjustment
             else:
-                adjustment = min(-difference, available[i])
+                adjustment = min(-difference, baseline[i])
                 baseline[i] -= adjustment
 
             difference = target_budget - baseline.sum()
@@ -247,29 +259,95 @@ def optimize_budget(target_budget, upper_bounds, slope=HILL_SLOPE):
             if abs(difference) <= 1e-7:
                 break
 
-    if not np.isclose(baseline.sum(), target_budget, atol=1e-4):
+    if (
+        not np.isclose(baseline.sum(), target_budget, atol=1e-4)
+        or np.any(baseline < -1e-6)
+        or np.any(baseline > upper_bounds + 1e-6)
+    ):
         raise RuntimeError(
             "Could not construct a feasible starting allocation."
         )
 
-    # Scale variables to improve numerical stability.
+    baseline = np.clip(baseline, 0.0, upper_bounds)
+
+    # Scale spending variables so the total budget is approximately 1.
     scale = max(float(target_budget), 1.0)
     scaled_budget = target_budget / scale
     scaled_upper_bounds = upper_bounds / scale
     scaled_baseline = baseline / scale
 
+    baseline_contribution = float(
+        total_steady_state_contribution(baseline, slope=slope)
+    )
+    contribution_scale = max(abs(baseline_contribution), 1.0)
+
     def objective(scaled_allocation):
+        """Normalized negative contribution."""
         allocation = scaled_allocation * scale
-        return -float(
-            total_steady_state_contribution(
-                allocation,
-                slope=slope,
-            )
+
+        contribution = total_steady_state_contribution(
+            allocation,
+            slope=slope,
         )
+
+        return -float(contribution) / contribution_scale
+
+    def objective_gradient(scaled_allocation):
+        """Analytical gradient of the normalized objective."""
+        allocation = scaled_allocation * scale
+        gradient = np.zeros_like(allocation, dtype=float)
+
+        for i, channel in enumerate(MEDIA_COLS):
+            spend = max(float(allocation[i]), 0.0)
+            adstock = spend / (1.0 - DECAY)
+
+            half_sat = float(HALF_SATURATION[channel])
+            coefficient = float(MEDIA_COEFFICIENTS[channel])
+
+            if half_sat <= 0:
+                raise ValueError(
+                    f"Half-saturation must be positive for {channel}."
+                )
+
+            if adstock == 0.0:
+                if slope < 1.0:
+                    derivative = 0.0
+                elif slope == 1.0:
+                    derivative = 1.0 / (
+                        half_sat * (1.0 - DECAY)
+                    )
+                else:
+                    derivative = 0.0
+            else:
+                numerator = (
+                    slope
+                    * (half_sat ** slope)
+                    * (adstock ** (slope - 1.0))
+                )
+                denominator = (
+                    half_sat ** slope + adstock ** slope
+                ) ** 2
+
+                derivative = (
+                    numerator / denominator / (1.0 - DECAY)
+                    if denominator > 0
+                    else 0.0
+                )
+
+            # Chain rule for scaled spending, with negative objective sign.
+            gradient[i] = (
+                -coefficient
+                * derivative
+                * scale
+                / contribution_scale
+            )
+
+        return gradient
 
     result = minimize(
         fun=objective,
         x0=scaled_baseline,
+        jac=objective_gradient,
         method="SLSQP",
         bounds=[
             (0.0, float(cap))
@@ -278,42 +356,55 @@ def optimize_budget(target_budget, upper_bounds, slope=HILL_SLOPE):
         constraints=[
             {
                 "type": "eq",
-                "fun": lambda allocation: allocation.sum() - scaled_budget,
-                "jac": lambda allocation: np.ones_like(allocation),
+                "fun": lambda x: np.sum(x) - scaled_budget,
+                "jac": lambda x: np.ones_like(x),
             }
         ],
         options={
             "maxiter": 3000,
-            "ftol": 1e-8,
+            "ftol": 1e-9,
             "disp": False,
         },
     )
 
-    if not result.success:
-        raise RuntimeError(
-            f"Budget optimization failed: {result.message}"
+    candidate = np.asarray(result.x, dtype=float) * scale
+
+    # Check whether the returned candidate is actually feasible.
+    candidate_is_valid = (
+        np.all(np.isfinite(candidate))
+        and np.isclose(candidate.sum(), target_budget, atol=1e-3)
+        and np.all(candidate >= -1e-4)
+        and np.all(candidate <= upper_bounds + 1e-3)
+    )
+
+    if candidate_is_valid:
+        candidate = np.clip(candidate, 0.0, upper_bounds)
+
+        candidate_contribution = float(
+            total_steady_state_contribution(candidate, slope=slope)
         )
 
-    allocation = result.x * scale
+        # Accept a line-search warning only if the candidate is feasible
+        # and is not meaningfully worse than the baseline.
+        if (
+            result.success
+            or candidate_contribution
+            >= baseline_contribution - 1e-6
+        ):
+            if not np.isclose(
+                candidate.sum(), target_budget, atol=1e-3
+            ):
+                raise RuntimeError(
+                    "Optimized allocation violates the budget constraint."
+                )
 
-    # Validate the final result.
-    if not np.isclose(allocation.sum(), target_budget, atol=1e-3):
-        raise RuntimeError(
-            "Optimized allocation violates the budget constraint."
-        )
+            return baseline, candidate
 
-    if (
-        np.any(allocation < -1e-4)
-        or np.any(allocation > upper_bounds + 1e-3)
-    ):
-        raise RuntimeError(
-            "Optimized allocation violates channel bounds."
-        )
-
-    # Remove insignificant numerical deviations.
-    allocation = np.clip(allocation, 0.0, upper_bounds)
-
-    return baseline, allocation
+    raise RuntimeError(
+        f"Budget optimization failed: {result.message}. "
+        f"Solver success={result.success}; "
+        f"candidate feasible={candidate_is_valid}."
+    )
 
 
 # ============================================================
@@ -640,6 +731,7 @@ else:
 
 
 
+
 # ============================================================
 # 10. FAIR, FIXED-BUDGET OPTIMIZATION
 # ============================================================
@@ -735,14 +827,18 @@ try:
         slope=HILL_SLOPE,
     )
 
-    baseline_contribution = total_steady_state_contribution(
-        baseline_allocation,
-        slope=HILL_SLOPE,
+    baseline_contribution = float(
+        total_steady_state_contribution(
+            baseline_allocation,
+            slope=HILL_SLOPE,
+        )
     )
 
-    optimized_contribution = total_steady_state_contribution(
-        optimized_allocation,
-        slope=HILL_SLOPE,
+    optimized_contribution = float(
+        total_steady_state_contribution(
+            optimized_allocation,
+            slope=HILL_SLOPE,
+        )
     )
 
 except Exception as error:
@@ -931,6 +1027,7 @@ with st.expander("View budget validation details"):
         "Both allocations satisfy the fixed-budget constraint and "
         "the configured channel spending limits."
     )
+
 
 
 # ============================================================
