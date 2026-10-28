@@ -236,8 +236,8 @@ Add screenshots of the actual running application to the `screenshots/` director
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Neel-Bokil/marketing-mix-model-cpg.git
-cd marketing-mix-model-cpg
+git clone https://github.com/Neel-Bokil/Marketing-Mixed-Model-CPG.git
+cd Marketing-Mixed-Model-CPG
 ```
 
 ### 2. Create a virtual environment
